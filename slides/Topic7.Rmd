@@ -1,0 +1,142 @@
+---
+title: "Short Course on R Tools"
+subtitle: "Deep Learning in R"
+format:
+  revealjs:
+    transition: fade
+    scrollable: true
+---
+
+# 1. Introduction & Setup
+
+```{r}
+install.packages("keras3")
+library(keras3)
+install_keras()
+```
+
+# 2. Fundamentals of Neural Networks
+
+```{r}
+model <- keras_model_sequential(input_shape = c(784)) %>%
+  layer_dense(units = 32, activation = 'relu') %>%
+  layer_dense(units = 10, activation = 'softmax')
+plot(model)
+```
+
+# Installing Keras
+
+```{r}
+remotes::install_github("rstudio/keras3")  # OR
+install.packages("keras3")
+```
+
+```{r}
+library(keras3)
+keras3::install_keras(backend = "tensorflow")
+```
+
+# Developing a Deep NN with Keras
+
+# Step 1: Data preprocessing
+```{r}
+library(keras3)
+
+# Load MNIST (Modified National Institute of Standards and Technology) images datasets 
+c(c(x_train, y_train), c(x_test, y_test)) %<-% dataset_mnist()
+
+# Flatten images and transform RGB values into [0,1] range 
+x_train <- array_reshape(x_train, c(nrow(x_train), 784))
+x_test <- array_reshape(x_test, c(nrow(x_test), 784))
+x_train <- x_train / 255
+x_test <- x_test / 255
+
+# Convert class vectors to binary class matrices
+y_train <- to_categorical(y_train, 10)
+y_test <- to_categorical(y_test, 10)
+```
+
+# Step 2: Model definition
+```{r}
+model <- keras_model_sequential(input_shape = c(784)) 
+model %>%
+     layer_dense(units = 256, activation = 'relu') %>%
+     layer_dropout(rate = 0.4) %>%
+     layer_dense(units = 128, activation = 'relu') %>%
+     layer_dropout(rate = 0.3) %>%
+     layer_dense(units = 10, activation = 'softmax')
+summary(model)
+```
+
+# Step 3: Compile model
+```{r}
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+```
+
+# Step 4: Train model
+```{r}
+history <- model %>% fit(
+  x_train, y_train, 
+  batch_size = 128, 
+  epochs = 10,
+  validation_split = 0.2
+)
+```
+
+```{r}
+model %>% evaluate(x_test, y_test)
+```
+
+# Evaluation and prediction
+```{r}
+plot(history)
+model %>% predict(x_test[1:100,]) %>% apply(1, which.max) - 1
+round(model %>% predict(x_test[1:9,]), 5)
+```
+
+# Keras API Examples
+
+```{r}
+layer_dense(units = 64, kernel_regularizer = regularizer_l1(0.01))
+layer_dense(units = 64, bias_regularizer = regularizer_l2(0.01))
+```
+
+# CNN Example
+```{r}
+cnn <- keras_model_sequential(input_shape = c(28,28,1)) %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2,2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2,2)) %>%
+  layer_flatten() %>%
+  layer_dense(units = 64, activation = 'relu') %>%
+  layer_dense(units = 10, activation = 'softmax')
+```
+
+# RNN with LSTM
+```{r}
+rnn <- keras_model_sequential() %>%
+  layer_lstm(units = 128, input_shape = c(timesteps, features)) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+```
+
+# Embedding Layer
+```{r}
+model <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 10000, output_dim = 8) %>%
+  layer_flatten() %>%
+  layer_dense(units = 1, activation = "sigmoid")
+```
+
+# Autoencoder
+```{r}
+ae <- keras_model_sequential(input_shape = c(784)) %>%
+  layer_dense(units = 64, activation = 'relu') %>%
+  layer_dense(units = 32, activation = 'relu') %>%
+  layer_dense(units = 64, activation = 'relu') %>%
+  layer_dense(units = 784, activation = 'sigmoid')
+```

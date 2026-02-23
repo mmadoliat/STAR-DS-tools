@@ -1,0 +1,350 @@
+---
+title: "Short Course on R Tools: Introduction to Rcpp"
+output:
+  html_document:
+    echo: true
+    warning: false
+    message: false
+    error: false
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Outline {auto-animate="true"}
+
+-   Motivation & Introduction
+-   Getting Started with `evalCpp()` & `cppFunction()`
+-   Using `sourceCpp()`
+-   Data Types & Conversions
+-   Standard Template Library (STL)
+-   Using Rcpp in Packages
+-   Advanced Topics & Resources
+
+# Motivation & Introduction
+
+-   **Performance Bottlenecks**: loops, recursion, complex operations
+
+-   **Rcpp**: smooth bridge between R and C++
+
+-   Do things you could not do before
+
+-   **Advantages**:
+
+    -   Low overhead function calls
+    -   Access to STL (data structures & algorithms)
+    -   Cleaner, maintainable code
+
+## Basic Usage: `evalCpp()`
+
+-   `evalCpp()` evaluates a single C++ expression. Includes and
+    dependencies can be declared.
+-   This allows us to quickly check C++ constructs.
+
+```{r code-line-numbers="1|3-4|6-7"}
+library(Rcpp)
+
+evalCpp("2 + 2")  # simple test
+#> [1] 4
+
+evalCpp("std::numeric_limits<double>::max()")
+#> [1] 1.79769e+308
+```
+
+# Simple Example
+
+-   R Version of “is this number odd or even”
+
+```{r code-line-numbers="1-4|5-6"}
+isOdd_r <- function(num = 10L) {
+  result = (num %% 2L == 1L)
+  return(result)
+}
+c(isOdd_r(42L), isOdd_r(43L))
+#> [1] FALSE TRUE
+```
+
+-   C++ Version of “is this number odd or even”
+
+``` cpp
+bool isOdd_cpp(int num = 10) {
+  bool result = (num % 2 == 1);
+  return result;
+}
+```
+
+## Simple Example – Using `cppFunction()`
+
+-   Rcpp Version of “is this number odd or even”
+
+```{r code-line-numbers="1,5|2-4|6-7"}
+Rcpp::cppFunction("
+bool isOdd_cpp(int num = 10) {
+  bool result = (num % 2 == 1);
+  return result;
+}")
+c(isOdd_cpp(42L), isOdd_cpp(43L))
+#> [1] FALSE TRUE
+```
+
+-   Use `cppFunction()` in R console or script
+-   Fast prototyping & testing
+-   Good for small functions\
+
+# Second Example: VAR(1)
+
+Let’s consider a simple possible $\mathrm{VAR}(1)$ system of $k$
+variables.
+
+For $k = 2$:
+
+$$
+X_t = X_{t-1} B + E_t
+$$
+
+where $X_t$ is a row vector of length 2, $B$ is a $2\times 2$ matrix,
+and $E_t$ is a row of the error matrix of 2 columns.
+
+## Second Example: VAR(1)
+
+In R code, given both the coefficient and error matrices:
+
+```{r}
+rSim <- function(B, E) {
+  X <- matrix(0, nrow(E), ncol(E))
+  for (r in 2:nrow(E)) {
+    X[r, ] = X[r-1, ] %*% B + E[r, ]
+  }
+  return(X)
+}
+```
+
+In C++ (with Armadillo):
+
+``` cpp
+arma::mat cppSim(arma::mat B, arma::mat E) {
+  int m = E.n_rows, n = E.n_cols;
+  arma::mat X(m, n);
+  X.row(0) = arma::zeros<arma::mat>(1, n);
+  for (int r = 1; r < m; r++) {
+    X.row(r) = X.row(r-1) * B + E.row(r);
+  }
+  return X;
+}
+```
+
+## Second Example: VAR(1)
+
+```{r code-line-numbers="1,9|1-9|11-12|13-17"}
+Rcpp::cppFunction('arma::mat cppSim(arma::mat B, arma::mat E) {
+  int m = E.n_rows, n = E.n_cols;
+  arma::mat X(m, n);
+  X.row(0) = arma::zeros<arma::mat>(1, n);
+  for (int r = 1; r < m; r++) {
+    X.row(r) = X.row(r-1) * B + E.row(r);
+  }
+  return X;
+}', depends="RcppArmadillo")
+
+a <- matrix(c(0.5, 0.1, 0.1, 0.5), nrow = 2)
+e <- matrix(rnorm(10000), ncol = 2)
+rbenchmark::benchmark(cppSim(a, e), rSim(a, e), order="relative")[, 1:4]
+
+#>    test           replications elapsed relative  
+#> 1  cppSim(a, e)  100         0.010   1.0      
+#> 2  rSim(a, e)    100         0.728  72.8     
+```
+
+# Growth of Rcpp
+
+-   Sometimes speed is not the only reason
+    -   Easy access to C/C++ libraries
+    -   C & C++ provide numerous libraries + APIs
+    -   Rcpp eases data transfer\
+-   Rcpp is currently used by
+    -   3,053 CRAN packages
+    -   250+ BioConductor packages
+    -   many GitHub projects\
+
+## Pagerank
+
+```{r code-line-numbers="1-3|5-7|9-10"}
+# remotes::install_github("andrie/pagerank")
+library(pagerank)
+
+cran <- "https://cloud.r-project.org"
+pr <- compute_pagerank(cran)
+round(100 * pr[1:5], 3)
+
+#>   Rcpp    ggplot2     dplyr      MASS   magrittr  
+#> 2.744     1.516       1.274    1.122    0.814  
+```
+
+## Percentage of Compiled Packages
+
+```{r code-line-numbers="1-2|4-6|8-10|12-13"}
+db <- tools::CRAN_package_db()       # R ≥ 3.4.0
+db <- db[!duplicated(db[, 1]), ]
+
+nTot <- nrow(db)
+nRcpp <- length(tools::dependsOnPkgs("Rcpp", recursive = FALSE, installed = db))
+nCompiled <- table(db[, "NeedsCompilation"])[["yes"]]
+
+propRcpp <- nRcpp / nCompiled * 100
+data.frame(
+  tot = nTot, 
+  totRcpp = nRcpp, 
+  totCompiled = nCompiled,
+  RcppPctOfCompiled = propRcpp
+)
+
+#>    tot totRcpp totCompiled RcppPctOfCompiled  
+#> 1 22501    3053        4981          61.29  
+```
+
+# Rcpp in RStudio – Using `sourceCpp()`
+
+-   Create standalone `.cpp` files:
+
+``` cpp
+// file.cpp
+#include <Rcpp.h>
+using namespace Rcpp;
+
+// [[Rcpp::export]]
+NumericVector timesTwo(NumericVector x) {
+  return x * 2;
+}
+```
+
+-   Compile with:
+
+```{r code-line-numbers="1-2|4-5"}
+sourceCpp('file.cpp')
+timesTwo(42)
+#> 84
+```
+
+## Using `sourceCpp()`
+
+-   We defined a C++ function
+-   It operates on a numeric vector
+-   Rcpp creates and registers a wrapper
+-   Compiles, links, and loads it
+-   Function available in R by its C++ name
+-   Benefits: syntax highlighting, easier debugging\
+
+# Another Example: Focus on Speed
+
+Consider the Fibonacci:
+
+$$
+f(n) =
+\begin{cases}
+n, & n < 2, \\
+f(n-1) + f(n-2), & n \ge 2.
+\end{cases}
+$$
+
+R implementation:
+
+```{r code-line-numbers="1,4|2|3|5-7"}
+f <- function(n) {
+  if (n < 2) return(n)
+  f(n - 1) + f(n - 2)
+}
+sapply(0:10, f)
+#> 0 1 1 2 3 5 8 13 21 34 55
+```
+
+## Timing R Implementation
+
+```{r code-line-numbers="1-2|4-7"}
+library(rbenchmark)
+benchmark(f(15), f(20), f(25))[, 1:4]
+
+#> test   replications elapsed relative  
+#> f(15) 100         0.06    1.0      
+#> f(20) 100         0.75   12.5      
+#> f(25) 100         7.92  132.0     
+```
+
+## Another Example: C++ Implementation
+
+``` cpp
+int g(int n) {
+  if (n < 2) return(n);
+  return(g(n - 1) + g(n - 2));
+}
+
+Rcpp::cppFunction('
+int g(int n) {
+  if (n < 2) return n;
+  return g(n - 1) + g(n - 2);
+}')
+sapply(0:10, g)
+#> 0 1 1 2 3 5 8 13 21 34 55
+```
+
+## Comparing Timing
+
+```{r code-line-numbers="1-2|4-6"}
+Rcpp::cppFunction('
+int g(int n) {
+  if (n < 2) return n;
+  return g(n - 1) + g(n - 2);
+}')
+
+library(rbenchmark)
+benchmark(f(25), g(25))[, 1:4]
+
+#>    test replications elapsed relative  
+#> 1 f(25) 100         8.02    267.33  
+#> 2 g(25) 100         0.03      1.00  
+```
+
+-   Speed gains of several orders of magnitude.
+
+# Data Types & Conversions
+
+-   **R vectors ↔ C++ classes**: `NumericVector`, `IntegerVector`,
+    `CharacterVector`, `LogicalVector`
+-   **Scalars**: `double`, `int`, `String`, `bool`
+-   **Key methods**: `.size()`, `.begin()`, `.end()`
+-   Constructors: `NumericVector out(n)`
+
+## Types
+
+R type mapping in C++:
+
+```{r code-line-numbers="1-4|5-6"}
+library(Rcpp)
+cppFunction("NumericVector logabs(NumericVector x) { return log(abs(x)); }")
+logabs(seq(-5, 5, by = 2))
+#> 1.609438 1.098612 0.000000 0.000000 1.098612 1.609438
+```
+
+-   Vectorized C++!
+
+## STL Type Mapping
+
+``` cpp
+// logabs2.cpp
+#include <Rcpp.h>
+using namespace Rcpp;
+
+inline double f(double x) { return ::log(::fabs(x)); }
+
+// [[Rcpp::export]]
+std::vector<double> logabs2(std::vector<double> x) {
+  std::transform(x.begin(), x.end(), x.begin(), f);
+  return x;
+}
+```
+
+```{r}
+library(Rcpp)
+sourceCpp("code/logabs2.cpp")
+logabs2(seq(-5, 5, by = 2))
+#> 1.609438 1.098612 0.000000 0.000000 1.098612 1.609438
+```
