@@ -7,7 +7,7 @@ library(tidyverse)
 Rcpp::sourceCpp("src/knn_predDC.cpp")
 
 # load our formula‐interface S3 model
-source("R/knn_s3_formulaDC.R")
+source("R/knn_functions.R")
 
 # fixed split function
 make_split <- function(data, prop = 0.7) {
@@ -22,10 +22,13 @@ segment_df <- function(train_x, test_x, ids, k){
   test_x  <- as.matrix(test_x)
   
   n <- nrow(train_x); p <- ncol(train_x); m <- nrow(test_x)
+  
+  # Create df with each test point alongside k nearest neighbors
   test_x_out = test_x[rep(1:m, each = k), ]
   train_x_out = train_x[ids, ]
   out = as.data.frame(cbind(test_x_out, train_x_out))
-  colnames(out) <- c(paste0("test_", colnames(train_x)), paste0("train_", colnames(train_x)))
+  colnames(out) <- c(paste0("test_", colnames(train_x)), 
+                     paste0("train_", colnames(train_x)))
   out
 }
 
@@ -56,68 +59,67 @@ server <- function(input, output, session) {
     make_split(mtcars, prop = 0.92)
   }, ignoreNULL = FALSE)
   
-  # fit model on training
-  model <- reactive({
-    d <- split()$train
-    knn_s3(mpg ~ wt + qsec, data = d, k = input$k)
-  })
-  
   # compute fitted (train) and predicted (test)
   fitted_vals <- reactive({
-    predict(model(), newdata = split()$train, method = input$backend)
+    d_train <- split()$train
+    knn_pred(d_train[, c("wt", "qsec")], d_train[, c("mpg")], 
+             d_train[, c("wt", "qsec")], input$k, input$backend)
   })
-  predicted    <- reactive({
-    predict(model(), newdata = split()$test,  method = input$backend)
+  predicted <- reactive({
+    d_train <- split()$train
+    d_test <- split()$test
+    knn_pred(d_train[, c("wt", "qsec")], d_train[, c("mpg")], 
+             d_test[, c("wt", "qsec")], input$k, input$backend)
   })
   
   # compute metrics
   mse <- function(obs, pred) mean((obs - pred)^2)
-  r2  <- function(obs, pred) 1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2)
+  r2  <- function(obs, pred) 1 - (sum((obs - pred)^2) / sum((obs - mean(obs))^2))
   
   output$trainPerf <- renderPrint({
     obs <- split()$train$mpg
     cat("Training set:\n")
-    cat("  MSE =", round(mse(obs, fitted_vals()[[1]]), 3),
-        "  R² =", round(r2(obs, fitted_vals()[[1]]), 3), "\n")
+    cat("  MSE =", round(mse(obs, fitted_vals()$preds), 3),
+        "  R² =", round(r2(obs, fitted_vals()$preds), 3), "\n")
   })
   output$testPerf <- renderPrint({
     obs <- split()$test$mpg
     cat("Test set:\n")
-    cat("  MSE =", round(mse(obs, predicted()[[1]]), 3),
-        "  R² =", round(r2(obs, predicted()[[1]]), 3), "\n")
+    cat("  MSE =", round(mse(obs, predicted()$preds), 3),
+        "  R² =", round(r2(obs, predicted()$preds), 3), "\n")
   })
   
   # scatter plot of actual vs predicted on test set
   output$predPlot <- renderPlot({
-    df_test <- split()$test
-    df_train <- split()$train
-    df_test$pred <- predicted()[[1]]
-    df_test$id = 1:nrow(df_test)
+    d_train <- split()$train
+    d_test <- split()$test
+    d_test$pred <- predicted()$preds
+    d_test$id = 1:nrow(d_test)
     
     # Create plot for geom_segment 
-    plot_df <- segment_df(df_train[, c("wt", "qsec")], 
-                          df_test[, c("wt", "qsec")], 
-                          predicted()[[2]], input$k)
+    plot_df <- segment_df(d_train[, c("wt", "qsec")], 
+                          d_test[, c("wt", "qsec")], 
+                          predicted()$ids, input$k)
     
     ggplot() +
       geom_segment(aes(x = test_wt, y = test_qsec, xend = train_wt, yend = train_qsec), 
-                   color = "grey80", data = plot_df, linetype = "dotted") +
-      geom_point(aes(x = wt, y = qsec, color = mpg), data = df_train) +
-      geom_text(aes(x = wt, y = qsec, color = pred, label = id), 
-                fontface = "bold", data = df_test) +
-      scale_color_gradient(low = "yellow", high = "red") +
+                   color = "grey50", data = plot_df, linetype = "dotted") +
+      geom_point(aes(x = wt, y = qsec, color = mpg), size = 2, data = d_train) +
+      geom_text(aes(x = wt, y = qsec, color = pred, label = id), size = 5,
+                fontface = "bold", data = d_test) +
+      scale_color_gradient(low = "#6A00A8FF", high = "#FCA636FF") +
       theme_classic() +
       labs(x = "wt", y = "qsec")
   })
   
   # show first few test observations
   output$predTable <- renderTable({
-    df <- split()$test
+    d_test <- split()$test
     data.frame(
-      id = 1:nrow(df),
-      car = rownames(df),
-      actual = round(df$mpg,2),
-      predicted = round(predicted()[[1]],2)
+      id = 1:nrow(d_test),
+      car = rownames(d_test),
+      actual = round(d_test$mpg,2),
+      predicted = round(predicted()$preds,2)
     )
   }, rownames = FALSE)
 }
