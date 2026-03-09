@@ -36,7 +36,7 @@ knn_pred <- function(train_x, train_y, test_x, k, method = "cpp") {
       # Mean of neighbor labels
       preds[j] <- mean(train_y[idx_k])
       
-      # Store ids of neartest neighbors
+      # Store ids of nearest neighbors
       # ids of vars
       ids[((j-1) * k + 1):(j * k)] <- idx_k
     }
