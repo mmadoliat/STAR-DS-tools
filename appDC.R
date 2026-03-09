@@ -89,24 +89,31 @@ server <- function(input, output, session) {
         "  R² =", round(r2(obs, predicted()$preds), 3), "\n")
   })
   
-  # scatter plot of actual vs predicted on test set
+  # Plot showing the k nearest neighbors for each test point
   output$predPlot <- renderPlot({
+    # Store train/test
     d_train <- split()$train
     d_test <- split()$test
-    d_test$pred <- predicted()$preds
     d_test$id = 1:nrow(d_test)
     
-    # Create plot for geom_segment 
-    plot_df <- segment_df(d_train[, c("wt", "qsec")], 
-                          d_test[, c("wt", "qsec")], 
-                          predicted()$ids, input$k)
+    # Create df for geom_segment 
+    nn <- segment_df(d_train[, c("wt", "qsec")], 
+                     d_test[, c("wt", "qsec")], 
+                     predicted()$ids, input$k)
     
+    # Add predictions for test set
+    d_test$pred <- predicted()$preds
+    
+    # Create the plot
     ggplot() +
-      geom_segment(aes(x = test_wt, y = test_qsec, xend = train_wt, yend = train_qsec), 
-                   color = "grey50", data = plot_df, linetype = "dotted") +
-      geom_point(aes(x = wt, y = qsec, color = mpg), size = 2, data = d_train) +
-      geom_text(aes(x = wt, y = qsec, color = pred, label = id), size = 5,
-                fontface = "bold", data = d_test) +
+      geom_segment(aes(x = test_wt, xend = train_wt, 
+                       y = test_qsec, yend = train_qsec), 
+                   color = "grey50", linetype = "dotted",
+                   data = nn) +
+      geom_point(aes(x = wt, y = qsec, color = mpg), 
+                 size = 2, data = d_train) +
+      geom_text(aes(x = wt, y = qsec, color = pred, label = id), 
+                size = 5, fontface = "bold", data = d_test) +
       scale_color_gradient(low = "#6A00A8FF", high = "#FCA636FF") +
       theme_classic() +
       labs(x = "wt", y = "qsec")

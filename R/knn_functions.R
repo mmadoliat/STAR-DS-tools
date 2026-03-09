@@ -1,5 +1,3 @@
-
-
 knn_pred <- function(train_x, train_y, test_x, k, method = "cpp") {
   # Coerce types
   train_x <- as.matrix(train_x)
@@ -53,4 +51,7 @@ knn_pred <- function(train_x, train_y, test_x, k, method = "cpp") {
   
   out
 }
+
+
+
 
